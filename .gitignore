@@ -29,3 +29,4 @@ src-tauri/gen/
 
 # SDL2 pre-built libraries
 SDL2/
+SDL3/
