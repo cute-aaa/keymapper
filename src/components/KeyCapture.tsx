@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { api } from "../api";
 
 interface KeyCaptureProps {
-  value: { primary_key: number; modifiers: number[] };
-  onChange: (keys: { primary_key: number; modifiers: number[] }) => void;
+  value: { primary_key: number; modifiers: number[]; combo_keys?: number[] };
+  onChange: (keys: { primary_key: number; modifiers: number[]; combo_keys?: number[] }) => void;
   device?: string;
+  allowCombo?: boolean;
 }
 
 const VK_NAMES: Record<number, string> = {
@@ -69,7 +70,7 @@ export function buttonToName(code: number, device: string): string {
 
 const MODIFIER_VK = new Set([0x10, 0x11, 0x12, 0x5B, 0x5C, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5]);
 
-export default function KeyCapture({ value, onChange, device = "keyboard" }: KeyCaptureProps) {
+export default function KeyCapture({ value, onChange, device = "keyboard", allowCombo = false }: KeyCaptureProps) {
   const [capturing, setCapturing] = useState(false);
   const [heldKeys, setHeldKeys] = useState<Set<number>>(new Set());
   const heldRef = useRef<Set<number>>(new Set());
@@ -126,51 +127,84 @@ export default function KeyCapture({ value, onChange, device = "keyboard" }: Key
   }, [cancelCapture]);
 
   // Gamepad polling — try browser API first, fallback to Rust backend
+  const heldGamepadRef = useRef<Set<number>>(new Set());
+  const pressOrderRef = useRef<number[]>([]);
+
   const startGamepadPolling = useCallback(() => {
     prevRef.current.clear();
+    heldGamepadRef.current.clear();
+    pressOrderRef.current = [];
     let settled = false;
+    let hadPress = false; // Track if any button was pressed during this capture
 
     const poll = async () => {
       if (settled) return;
 
-      // Try browser Gamepad API first (handles HID mapping automatically)
+      const currentHeld = new Set<number>();
+
+      // Try browser Gamepad API first
       try {
         const gamepads = navigator.getGamepads();
         for (const gp of gamepads) {
           if (!gp) continue;
           for (let i = 0; i < gp.buttons.length; i++) {
-            const pressed = gp.buttons[i].pressed;
-            if (pressed && !prevRef.current.has(i)) {
-              settled = true;
-              console.log(`Gamepad API: button ${i} pressed on "${gp.id}"`);
-              onChangeRef.current({ primary_key: i, modifiers: [] });
-              cancelCapture(); return;
-            }
-            if (pressed) prevRef.current.add(i);
-            else prevRef.current.delete(i);
+            if (gp.buttons[i].pressed) currentHeld.add(i);
           }
         }
       } catch { /* API not available */ }
 
       // Fallback: Rust backend
-      try {
-        const result = await api.pollGamepadButtons();
-        for (const [, buttons] of result) {
-          for (let bit = 0; bit < 20; bit++) {
-            const mask = 1 << bit;
-            const pressed = (buttons & mask) !== 0;
-            if (pressed && !prevRef.current.has(bit)) {
-              settled = true;
-              console.log(`Rust backend: button ${bit} pressed`);
-              onChangeRef.current({ primary_key: bit, modifiers: [] });
-              cancelCapture(); return;
+      if (currentHeld.size === 0) {
+        try {
+          const result = await api.pollGamepadButtons();
+          for (const [, buttons] of result) {
+            for (let bit = 0; bit < 21; bit++) {
+              if ((buttons & (1 << bit)) !== 0) currentHeld.add(bit);
             }
-            if (pressed) prevRef.current.add(bit);
-            else prevRef.current.delete(bit);
+          }
+        } catch { /* ignore */ }
+      }
+
+      // Track press order
+      for (const btn of currentHeld) {
+        if (!heldGamepadRef.current.has(btn)) {
+          pressOrderRef.current.push(btn);
+        }
+      }
+      heldGamepadRef.current = currentHeld;
+
+      if (currentHeld.size > 0) {
+        hadPress = true;
+      }
+
+      if (allowCombo) {
+        // Combo mode: wait for all buttons to be released after at least one press
+        if (hadPress && currentHeld.size === 0 && pressOrderRef.current.length > 0) {
+          settled = true;
+          const allPressed = [...pressOrderRef.current];
+          if (allPressed.length === 1) {
+            // Single key
+            onChangeRef.current({ primary_key: allPressed[0], modifiers: [], combo_keys: [] });
+          } else {
+            // Combo: last pressed is primary, rest are combo
+            const primary = allPressed[allPressed.length - 1];
+            const combo = allPressed.slice(0, -1);
+            onChangeRef.current({ primary_key: primary, modifiers: [], combo_keys: combo });
+          }
+          cancelCapture(); return;
+        }
+      } else {
+        // Single mode: capture first pressed button immediately
+        for (const btn of currentHeld) {
+          if (!prevRef.current.has(btn)) {
+            settled = true;
+            onChangeRef.current({ primary_key: btn, modifiers: [], combo_keys: [] });
+            cancelCapture(); return;
           }
         }
-      } catch { /* ignore */ }
+      }
 
+      prevRef.current = currentHeld;
       timerRef.current = requestAnimationFrame(poll);
     };
     timerRef.current = requestAnimationFrame(poll);
@@ -200,15 +234,24 @@ export default function KeyCapture({ value, onChange, device = "keyboard" }: Key
 
   // Display
   const hasValue = value.primary_key > 0;
+  const isGamepadDevice = device === "xbox_gamepad" || device === "ps5_gamepad";
 
   const displayKeys = () => {
+    const nameFn = isGamepadDevice ? (k: number) => buttonToName(k, device) : vkToName;
     const keys = [...value.modifiers, value.primary_key].filter(k => k > 0);
+    const comboKeys = (value.combo_keys || []).filter(k => k > 0);
     return (
       <div className="captured-keys">
+        {comboKeys.map((k, i) => (
+          <span key={"c"+i}>
+            <span className="key-badge">{nameFn(k)}</span>
+            <span style={{ color: "var(--text-muted)", margin: "0 2px" }}>+</span>
+          </span>
+        ))}
         {keys.map((k, i) => (
           <span key={i}>
             {i > 0 && <span style={{ color: "var(--text-muted)", margin: "0 2px" }}>+</span>}
-            <span className="key-badge">{vkToName(k)}</span>
+            <span className="key-badge">{nameFn(k)}</span>
           </span>
         ))}
       </div>

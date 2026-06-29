@@ -218,6 +218,9 @@ pub fn get_logs() -> Vec<LogEntry> {
 #[tauri::command]
 pub fn poll_gamepad_buttons() -> Vec<(String, u32)> {
     crate::engine::gamepad::poll_all_gamepad_buttons()
+        .into_iter()
+        .map(|(id, buttons, _vid)| (id, buttons))
+        .collect()
 }
 
 #[tauri::command]
@@ -228,6 +231,16 @@ pub fn diagnose_gamepad(duration_ms: u64) -> Vec<String> {
 #[tauri::command]
 pub fn reset_dualsense() -> bool {
     crate::engine::gamepad::dualsense_hid::reset_dualsense()
+}
+
+#[tauri::command]
+pub fn test_sound() {
+    hook::play_sound_feedback();
+}
+
+#[tauri::command]
+pub fn test_vibration(intensity: u8, duration_ms: u32) {
+    hook::trigger_vibration(intensity as u16 * 257, duration_ms);
 }
 
 #[tauri::command]

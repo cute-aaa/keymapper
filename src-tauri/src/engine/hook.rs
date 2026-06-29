@@ -1,12 +1,50 @@
-use crate::config::types::{DeviceType, InputSource, LogEntry, RecordedEvent, TriggerMode};
+use crate::config::types::{DeviceType, InputSource, LogEntry, MappingRule, RecordedEvent, TriggerMode};
 use crate::engine::mapper::ENGINE;
 use crate::engine::simulate;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tracing::info;
-use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+
+/// Play a short beep sound as mapping feedback
+pub fn play_sound_feedback() {
+    unsafe {
+        // MessageBeep from Win32::System::Diagnostics::Debug
+        use windows::Win32::System::Diagnostics::Debug::MessageBeep;
+        use windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE;
+        let _ = MessageBeep(MESSAGEBOX_STYLE(0x00000040)); // MB_ICONASTERISK
+    }
+}
+
+/// Trigger gamepad vibration via XInput (non-blocking, spawns a thread)
+pub fn trigger_vibration(intensity: u16, duration_ms: u32) {
+    std::thread::spawn(move || {
+        #[cfg(windows)]
+        {
+            use windows::Win32::UI::Input::XboxController::*;
+            let vibration = XINPUT_VIBRATION {
+                wLeftMotorSpeed: intensity,
+                wRightMotorSpeed: intensity,
+            };
+            // Try all 4 XInput ports
+            for port in 0..4u32 {
+                unsafe {
+                    let _ = XInputSetState(port, &vibration);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(duration_ms as u64));
+            // Stop vibration
+            let stop = XINPUT_VIBRATION { wLeftMotorSpeed: 0, wRightMotorSpeed: 0 };
+            for port in 0..4u32 {
+                unsafe {
+                    let _ = XInputSetState(port, &stop);
+                }
+            }
+        }
+    });
+}
 
 lazy_static::lazy_static! {
     static ref RECORDED_EVENTS: Arc<Mutex<Vec<RecordedEvent>>> = Arc::new(Mutex::new(Vec::new()));
@@ -158,10 +196,10 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lpar
         let modifiers = get_current_modifiers();
         let source = InputSource {
             device: DeviceType::Keyboard, primary_key: vk as u32, modifiers: modifiers.clone(),
-            mode: trigger_mode, axis_threshold: None, direction: None,
+            mode: trigger_mode, axis_threshold: None, direction: None, combo_keys: Vec::new(),
         };
 
-        let matches = ENGINE.find_matching_rules(&source);
+        let matches = ENGINE.find_matching_rules(&source, 0);
         let mut consumed = false;
 
         if !matches.is_empty() {
@@ -170,9 +208,17 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lpar
                 push_log("info", &format!("Rule matched: {} ({} -> {})", rule.name, vk_to_name(vk),
                     rule.targets.iter().map(|t| format!("0x{:02X}", t.output_key)).collect::<Vec<_>>().join(", ")));
 
+                // Feedback
+                if rule.sound_feedback { play_sound_feedback(); }
+
                 for target in &rule.targets {
                     if rule.advanced.delay_before_ms > 0 {
                         std::thread::sleep(std::time::Duration::from_millis(rule.advanced.delay_before_ms as u64));
+                    }
+                    // Press modifiers first
+                    for mod_vk in &target.output_modifiers {
+                        ENGINE.add_exempt(*mod_vk);
+                        simulate::simulate_key_press(*mod_vk);
                     }
                     match target.action_type {
                         crate::config::types::ActionType::KeyClick => { ENGINE.add_exempt(target.output_key); simulate::simulate_key_click(target.output_key, target.duration_ms); }
@@ -180,6 +226,10 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lpar
                         crate::config::types::ActionType::KeyRelease => { ENGINE.add_exempt(target.output_key); simulate::simulate_key_release(target.output_key); }
                         crate::config::types::ActionType::MouseWheel => { simulate::simulate_mouse_wheel(target.output_key as i32); }
                         _ => {}
+                    }
+                    // Release modifiers after
+                    for mod_vk in &target.output_modifiers {
+                        simulate::simulate_key_release(*mod_vk);
                     }
                 }
                 if rule.advanced.consume_input { consumed = true; }
@@ -229,9 +279,9 @@ pub unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam:
             let trigger_mode = if action == "Press" { TriggerMode::Press } else { TriggerMode::Release };
             let source = InputSource {
                 device: DeviceType::Mouse, primary_key: button as u32, modifiers: Vec::new(),
-                mode: trigger_mode, axis_threshold: None, direction: None,
+                mode: trigger_mode, axis_threshold: None, direction: None, combo_keys: Vec::new(),
             };
-            let matches = ENGINE.find_matching_rules(&source);
+            let matches = ENGINE.find_matching_rules(&source, 0);
             let mut consumed = false;
 
             if !matches.is_empty() {
@@ -241,11 +291,18 @@ pub unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam:
                         if rule.advanced.delay_before_ms > 0 {
                             std::thread::sleep(std::time::Duration::from_millis(rule.advanced.delay_before_ms as u64));
                         }
+                        for mod_vk in &target.output_modifiers {
+                            ENGINE.add_exempt(*mod_vk);
+                            simulate::simulate_key_press(*mod_vk);
+                        }
                         match target.action_type {
                             crate::config::types::ActionType::KeyClick => { ENGINE.add_exempt(target.output_key); simulate::simulate_key_click(target.output_key, target.duration_ms); }
                             crate::config::types::ActionType::KeyPress => { ENGINE.add_exempt(target.output_key); simulate::simulate_key_press(target.output_key); }
                             crate::config::types::ActionType::KeyRelease => { ENGINE.add_exempt(target.output_key); simulate::simulate_key_release(target.output_key); }
                             _ => {}
+                        }
+                        for mod_vk in &target.output_modifiers {
+                            simulate::simulate_key_release(*mod_vk);
                         }
                     }
                     if rule.advanced.consume_input { consumed = true; }
@@ -272,7 +329,7 @@ pub fn start_gamepad_recording() {
         let mut prev_buttons: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
         loop {
             let all_buttons = poll_all_gamepad_buttons();
-            for (dev_id, buttons) in &all_buttons {
+            for (dev_id, buttons, vid) in &all_buttons {
                 let prev = prev_buttons.get(dev_id).copied().unwrap_or(0);
                 let changed = *buttons ^ prev;
                 if changed != 0 {
@@ -281,13 +338,57 @@ pub fn start_gamepad_recording() {
                         if changed & mask != 0 {
                             let pressed = buttons & mask != 0;
                             let action = if pressed { "Press" } else { "Release" };
-                            let is_ps = dev_id.starts_with("joy_") || dev_id.starts_with("dualsense");
+                            let is_ps = *vid == 0x054C;
                             let device_name = if is_ps { "PS5" } else { "Xbox" }.to_string();
                             let name = gamepad_button_name(bit as u16, is_ps);
                             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
                             let mut last = LAST_EVENT_TIME.lock();
                             let delay = if *last == 0 { 0 } else { now.saturating_sub(*last) };
                             *last = now;
+
+                            // Rule matching for gamepad
+                            if pressed {
+                                let trigger_mode = TriggerMode::Press;
+                                let device_type = if is_ps { DeviceType::Ps5Gamepad } else { DeviceType::XboxGamepad };
+                                let source = InputSource {
+                                    device: device_type, primary_key: bit, modifiers: Vec::new(),
+                                    mode: trigger_mode, axis_threshold: None, direction: None, combo_keys: Vec::new(),
+                                };
+                                let matches = ENGINE.find_matching_rules(&source, *buttons);
+                                for rule in &matches {
+                                    push_log("info", &format!("Gamepad rule matched: {} ({} -> {})", rule.name, name,
+                                        rule.targets.iter().map(|t| format!("0x{:02X}", t.output_key)).collect::<Vec<_>>().join(", ")));
+
+                                    // Sound feedback
+                                    if rule.sound_feedback { play_sound_feedback(); }
+
+                                    // Vibration feedback (gamepad source only)
+                                    if rule.vibration_feedback {
+                                        trigger_vibration(rule.vibration_intensity as u16 * 257, rule.vibration_duration_ms);
+                                    }
+
+                                    for target in &rule.targets {
+                                        if rule.advanced.delay_before_ms > 0 {
+                                            std::thread::sleep(std::time::Duration::from_millis(rule.advanced.delay_before_ms as u64));
+                                        }
+                                        for mod_vk in &target.output_modifiers {
+                                            ENGINE.add_exempt(*mod_vk);
+                                            simulate::simulate_key_press(*mod_vk);
+                                        }
+                                        match target.action_type {
+                                            crate::config::types::ActionType::KeyClick => { ENGINE.add_exempt(target.output_key); simulate::simulate_key_click(target.output_key, target.duration_ms); }
+                                            crate::config::types::ActionType::KeyPress => { ENGINE.add_exempt(target.output_key); simulate::simulate_key_press(target.output_key); }
+                                            crate::config::types::ActionType::KeyRelease => { ENGINE.add_exempt(target.output_key); simulate::simulate_key_release(target.output_key); }
+                                            crate::config::types::ActionType::MouseWheel => { simulate::simulate_mouse_wheel(target.output_key as i32); }
+                                            _ => {}
+                                        }
+                                        for mod_vk in &target.output_modifiers {
+                                            simulate::simulate_key_release(*mod_vk);
+                                        }
+                                    }
+                                }
+                            }
+
                             if is_recording() {
                                 record_event(RecordedEvent {
                                     timestamp: chrono::Local::now().format("%H:%M:%S%.3f").to_string(),

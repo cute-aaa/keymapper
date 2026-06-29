@@ -10,6 +10,10 @@ export interface MappingRule {
   targets: InputAction[];
   conditions: MappingCondition[];
   advanced: MappingAdvanced;
+  sound_feedback?: boolean;
+  vibration_feedback?: boolean;
+  vibration_intensity?: number;
+  vibration_duration_ms?: number;
 }
 
 export interface InputSource {
@@ -19,6 +23,7 @@ export interface InputSource {
   mode: string;
   axis_threshold?: number;
   direction?: string;
+  combo_keys?: number[];
 }
 
 export interface InputAction {
@@ -122,4 +127,6 @@ export const api = {
   pollGamepadButtons: () => invoke<[string, number][]>("poll_gamepad_buttons"),
   diagnoseGamepad: (durationMs: number) => invoke<string[]>("diagnose_gamepad", { durationMs }),
   resetDualsense: () => invoke<boolean>("reset_dualsense"),
+  testSound: () => invoke<void>("test_sound"),
+  testVibration: (intensity: number, durationMs: number) => invoke<void>("test_vibration", { intensity, durationMs }),
 };

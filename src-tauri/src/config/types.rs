@@ -45,6 +45,9 @@ pub struct InputSource {
     pub axis_threshold: Option<f32>,
     #[serde(default)]
     pub direction: Option<String>,
+    /// Additional keys that must be pressed together with primary_key (combo mode)
+    #[serde(default)]
+    pub combo_keys: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,10 +109,30 @@ pub struct MappingRule {
     pub conditions: Vec<MappingCondition>,
     #[serde(default)]
     pub advanced: MappingAdvanced,
+    /// Play a sound when this mapping triggers
+    #[serde(default)]
+    pub sound_feedback: bool,
+    /// Vibrate gamepad when this mapping triggers (gamepad source only)
+    #[serde(default)]
+    pub vibration_feedback: bool,
+    /// Vibration intensity 0-255 (default 128)
+    #[serde(default = "default_vibration_intensity")]
+    pub vibration_intensity: u8,
+    /// Vibration duration in ms (default 200)
+    #[serde(default = "default_vibration_duration")]
+    pub vibration_duration_ms: u32,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_vibration_intensity() -> u8 {
+    128
+}
+
+fn default_vibration_duration() -> u32 {
+    200
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

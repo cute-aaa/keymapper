@@ -90,6 +90,8 @@ fn main() {
             commands::poll_gamepad_buttons,
             commands::diagnose_gamepad,
             commands::reset_dualsense,
+            commands::test_sound,
+            commands::test_vibration,
             commands::window_minimize,
             commands::window_maximize,
             commands::window_close,

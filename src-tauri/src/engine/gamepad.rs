@@ -351,7 +351,7 @@ pub fn winmm_to_w3c(dw_buttons: u32, dw_pov: u32) -> u32 {
     b
 }
 
-pub fn poll_all_gamepad_buttons() -> Vec<(String, u32)> {
+pub fn poll_all_gamepad_buttons() -> Vec<(String, u32, u16)> {
     let mut result = Vec::new();
     #[cfg(windows)]
     {
@@ -378,7 +378,7 @@ pub fn poll_all_gamepad_buttons() -> Vec<(String, u32)> {
                             bitmask = winmm_to_w3c(_buttons, _pov);
                         }
 
-                        result.push((dev.id.clone(), bitmask));
+                        result.push((dev.id.clone(), bitmask, vid));
                     }
                 }
             }
@@ -387,9 +387,9 @@ pub fn poll_all_gamepad_buttons() -> Vec<(String, u32)> {
         // Also check XInput ports not found via WinMM
         for port in 0..4u32 {
             let dev_id = format!("joy_{}", port);
-            if !result.iter().any(|(id, _)| id == &dev_id) {
+            if !result.iter().any(|(id, _, _)| id == &dev_id) {
                 if let Some(bitmask) = poll_xinput(port) {
-                    result.push((dev_id, bitmask));
+                    result.push((dev_id, bitmask, 0x045E));
                 }
             }
         }
@@ -397,7 +397,7 @@ pub fn poll_all_gamepad_buttons() -> Vec<(String, u32)> {
         // DualSense via hidapi if not found via WinMM
         if !devices.iter().any(|d| d.device_type == crate::config::types::DeviceType::Ps5Gamepad) {
             if let Some(bitmask) = dualsense_hid::poll_dualsense_hid() {
-                result.push(("dualsense_hid".to_string(), bitmask));
+                result.push(("dualsense_hid".to_string(), bitmask, 0x054C));
             }
         }
     }

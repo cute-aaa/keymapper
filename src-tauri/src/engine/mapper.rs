@@ -27,11 +27,12 @@ impl MappingEngine {
         info!("Loaded {} mapping rules", r.len());
     }
 
-    pub fn find_matching_rules(&self, source: &InputSource) -> Vec<MappingRule> {
+    /// Find matching rules. `gamepad_buttons` is the current bitmask of pressed gamepad buttons (W3C indices).
+    pub fn find_matching_rules(&self, source: &InputSource, gamepad_buttons: u32) -> Vec<MappingRule> {
         let rules = self.rules.read();
         let mut matches: Vec<MappingRule> = rules
             .iter()
-            .filter(|r| r.is_enabled && self.source_matches(&r.source, source))
+            .filter(|r| r.is_enabled && self.source_matches(&r.source, source, gamepad_buttons))
             .cloned()
             .collect();
 
@@ -40,7 +41,7 @@ impl MappingEngine {
         matches
     }
 
-    fn source_matches(&self, rule_source: &InputSource, event_source: &InputSource) -> bool {
+    fn source_matches(&self, rule_source: &InputSource, event_source: &InputSource, gamepad_buttons: u32) -> bool {
         // Check device type
         if rule_source.device != crate::config::types::DeviceType::Any
             && rule_source.device != event_source.device
@@ -57,6 +58,15 @@ impl MappingEngine {
         for modifier in &rule_source.modifiers {
             if !event_source.modifiers.contains(modifier) {
                 return false;
+            }
+        }
+
+        // Check combo keys (all combo keys must be pressed simultaneously)
+        if !rule_source.combo_keys.is_empty() {
+            for combo_key in &rule_source.combo_keys {
+                if gamepad_buttons & (1 << combo_key) == 0 {
+                    return false;
+                }
             }
         }
 
