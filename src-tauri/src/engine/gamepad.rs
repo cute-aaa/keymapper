@@ -244,6 +244,24 @@ pub mod dualsense_hid {
         *DS_NOT_FOUND.lock() = false;
         ensure_connected()
     }
+
+    /// Trigger DualSense rumble via hidapi. left=low-freq(0-255), right=high-freq(0-255).
+    pub fn set_dualsense_rumble(left: u8, right: u8) -> bool {
+        let ctrl = DS_CONTROLLER.lock();
+        if let Some(ref wrapper) = *ctrl {
+            match wrapper.0.set_rumble(left, right) {
+                Ok(_) => true,
+                Err(e) => { warn!("DualSense rumble failed: {}", e); false }
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Stop DualSense rumble.
+    pub fn stop_dualsense_rumble() -> bool {
+        set_dualsense_rumble(0, 0)
+    }
 }
 
 // ---- Device detection ----

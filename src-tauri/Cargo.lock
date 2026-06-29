@@ -674,7 +674,7 @@ checksum = "f678cf4a922c215c63e0de95eb1ff08a958a81d47e485cf9da1e27bf6305cfa5"
 [[package]]
 name = "dualsense-input"
 version = "0.1.0"
-source = "git+https://github.com/cute-aaa/dualsense-input.git#737da5430318a2e7f23d62a47d1b535cf8cbfd28"
+source = "git+https://github.com/cute-aaa/dualsense-input.git#4007b8b022e2b514be28536661fcec1cc2113304"
 dependencies = [
  "hidapi",
 ]

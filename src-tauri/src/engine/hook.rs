@@ -18,9 +18,15 @@ pub fn play_sound_feedback() {
     }
 }
 
-/// Trigger gamepad vibration via XInput (non-blocking, spawns a thread)
+/// Trigger gamepad vibration. Tries DualSense hidapi first, then XInput.
 pub fn trigger_vibration(intensity: u16, duration_ms: u32) {
     std::thread::spawn(move || {
+        let rumble_val = (intensity >> 8) as u8; // Convert 0-65535 to 0-255
+
+        // Try DualSense hidapi rumble first
+        let ds_rumbled = crate::engine::gamepad::dualsense_hid::set_dualsense_rumble(rumble_val, rumble_val);
+
+        // Also try XInput for Xbox controllers
         #[cfg(windows)]
         {
             use windows::Win32::UI::Input::XboxController::*;
@@ -28,19 +34,23 @@ pub fn trigger_vibration(intensity: u16, duration_ms: u32) {
                 wLeftMotorSpeed: intensity,
                 wRightMotorSpeed: intensity,
             };
-            // Try all 4 XInput ports
             for port in 0..4u32 {
-                unsafe {
-                    let _ = XInputSetState(port, &vibration);
-                }
+                unsafe { let _ = XInputSetState(port, &vibration); }
             }
-            std::thread::sleep(std::time::Duration::from_millis(duration_ms as u64));
-            // Stop vibration
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(duration_ms as u64));
+
+        // Stop vibration
+        if ds_rumbled {
+            crate::engine::gamepad::dualsense_hid::stop_dualsense_rumble();
+        }
+        #[cfg(windows)]
+        {
+            use windows::Win32::UI::Input::XboxController::*;
             let stop = XINPUT_VIBRATION { wLeftMotorSpeed: 0, wRightMotorSpeed: 0 };
             for port in 0..4u32 {
-                unsafe {
-                    let _ = XInputSetState(port, &stop);
-                }
+                unsafe { let _ = XInputSetState(port, &stop); }
             }
         }
     });
