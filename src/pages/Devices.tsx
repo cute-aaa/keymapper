@@ -71,9 +71,15 @@ export default function Devices() {
             {loading ? "刷新中..." : "↻ 刷新"}
           </button>
           {hasGamepad && (
-            <button className="btn btn-primary" onClick={runDiagnose} disabled={diagRunning}>
-              {diagRunning ? "诊断中..." : "🔍 诊断手柄"}
-            </button>
+            <>
+              <button className="btn btn-primary" onClick={runDiagnose} disabled={diagRunning}>
+                {diagRunning ? "诊断中..." : "🔍 诊断手柄"}
+              </button>
+              <button className="btn" onClick={async () => {
+                const ok = await api.resetDualsense();
+                alert(ok ? "手柄已重置" : "重置失败（未找到 DualSense MI_00）");
+              }}>🔄 重置手柄</button>
+            </>
           )}
         </div>
       </div>

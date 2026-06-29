@@ -226,6 +226,11 @@ pub fn diagnose_gamepad(duration_ms: u64) -> Vec<String> {
 }
 
 #[tauri::command]
+pub fn reset_dualsense() -> bool {
+    crate::engine::gamepad::dualsense_hid::reset_dualsense()
+}
+
+#[tauri::command]
 pub fn clear_logs() {
     hook::clear_logs();
 }

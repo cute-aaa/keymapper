@@ -106,6 +106,10 @@ pub fn gamepad_button_name(idx: u16, is_ps: bool) -> String {
             10 => "L3", 11 => "R3",
             12 => "↑", 13 => "↓", 14 => "←", 15 => "→",
             16 => "PS",
+            17 => "触摸板",
+            18 => "静音",
+            19 => "L2数字",
+            20 => "R2数字",
             _ => return format!("按键{}", idx),
         }.to_string()
     } else {
@@ -117,6 +121,10 @@ pub fn gamepad_button_name(idx: u16, is_ps: bool) -> String {
             10 => "L3", 11 => "R3",
             12 => "↑", 13 => "↓", 14 => "←", 15 => "→",
             16 => "Xbox",
+            17 => "Touchpad",
+            18 => "Mute",
+            19 => "LT Digital",
+            20 => "RT Digital",
             _ => return format!("按键{}", idx),
         }.to_string()
     }
@@ -268,12 +276,12 @@ pub fn start_gamepad_recording() {
                 let prev = prev_buttons.get(dev_id).copied().unwrap_or(0);
                 let changed = *buttons ^ prev;
                 if changed != 0 {
-                    for bit in 0..20u32 {
+                    for bit in 0..21u32 {
                         let mask = 1u32 << bit;
                         if changed & mask != 0 {
                             let pressed = buttons & mask != 0;
                             let action = if pressed { "Press" } else { "Release" };
-                            let is_ps = dev_id.starts_with("joy_");
+                            let is_ps = dev_id.starts_with("joy_") || dev_id.starts_with("dualsense");
                             let device_name = if is_ps { "PS5" } else { "Xbox" }.to_string();
                             let name = gamepad_button_name(bit as u16, is_ps);
                             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;

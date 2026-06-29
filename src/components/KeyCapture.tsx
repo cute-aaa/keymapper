@@ -50,7 +50,7 @@ const PS5_NAMES: Record<number, string> = {
   8: "Share", 9: "Options",
   10: "L3", 11: "R3",
   12: "↑", 13: "↓", 14: "←", 15: "→",
-  16: "PS",
+  16: "PS", 17: "触摸板", 18: "静音",
 };
 
 export function vkToName(vk: number): string {

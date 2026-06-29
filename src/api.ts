@@ -121,4 +121,5 @@ export const api = {
   // Gamepad
   pollGamepadButtons: () => invoke<[string, number][]>("poll_gamepad_buttons"),
   diagnoseGamepad: (durationMs: number) => invoke<string[]>("diagnose_gamepad", { durationMs }),
+  resetDualsense: () => invoke<boolean>("reset_dualsense"),
 };
