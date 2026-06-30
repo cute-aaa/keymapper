@@ -1,4 +1,4 @@
-use crate::config::types::{DeviceType, InputSource, LogEntry, MappingRule, RecordedEvent, TriggerMode};
+use crate::config::types::{DeviceType, InputSource, LogEntry, RecordedEvent, TriggerMode};
 use crate::engine::mapper::ENGINE;
 use crate::engine::simulate;
 use parking_lot::Mutex;
@@ -131,7 +131,6 @@ fn vk_to_name(vk: u16) -> String {
         0x23 => "End".to_string(), 0x24 => "Home".to_string(), 0x25 => "←".to_string(),
         0x26 => "↑".to_string(), 0x27 => "→".to_string(), 0x28 => "↓".to_string(),
         0x2C => "PrintScreen".to_string(), 0x2D => "Insert".to_string(), 0x2E => "Delete".to_string(),
-        0x5B => "Win".to_string(), 0x5C => "Win".to_string(),
         0x60 => "Num0".to_string(), 0x61 => "Num1".to_string(), 0x62 => "Num2".to_string(),
         0x63 => "Num3".to_string(), 0x64 => "Num4".to_string(), 0x65 => "Num5".to_string(),
         0x66 => "Num6".to_string(), 0x67 => "Num7".to_string(), 0x68 => "Num8".to_string(),
@@ -218,7 +217,6 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lpar
         };
 
         // Always log to verify hook is active
-        tracing::debug!("KB hook: vk=0x{:02X} action={} recording={}", vk, action, is_recording());
 
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
         let last_val = LAST_EVENT_TIME.load(Ordering::Relaxed);
@@ -275,7 +273,6 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lpar
             action: action.to_string(), mapped: !matches.is_empty(),
             mapping_rule: matches.first().map(|r| r.name.clone()), delay_ms: Some(delay),
         });
-        tracing::info!("KB recorded: vk=0x{:02X} action={} recording={}", vk, action, is_recording());
 
         if action == "Press" {
             let mut pressed = PRESSED_KEYS.lock();

@@ -29,7 +29,8 @@ pub fn get_gamepad_devices() -> Vec<DeviceInfo> {
 #[cfg(windows)]
 mod winmm {
     #[repr(C)]
-    pub struct JOYINFOEX {
+        #[allow(non_snake_case)]
+        pub struct JOYINFOEX {
         pub dwSize: u32,
         pub dwFlags: u32,
         pub dwXpos: u32,
@@ -46,6 +47,7 @@ mod winmm {
     }
 
     #[repr(C)]
+    #[allow(non_snake_case)]
     pub struct JOYCAPSW {
         pub wMid: u16,
         pub wPid: u16,
@@ -373,8 +375,6 @@ pub fn poll_all_gamepad_buttons() -> Vec<(String, u32, u16)> {
     let mut result = Vec::new();
     #[cfg(windows)]
     {
-        use windows::Win32::UI::Input::XboxController::*;
-
         let devices = GAMEPAD_DEVICES.lock();
 
         for dev in devices.iter() {

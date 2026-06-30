@@ -110,7 +110,6 @@ export const api = {
 
   // Devices
   getDevices: () => invoke<DeviceInfo[]>("get_devices"),
-  refreshDevices: () => invoke<DeviceInfo[]>("refresh_devices"),
 
   // Recording
   startRecording: () => invoke<void>("start_recording"),
@@ -118,7 +117,6 @@ export const api = {
   getRecordedEvents: () => invoke<RecordedEvent[]>("get_recorded_events"),
   clearRecordedEvents: () => invoke<void>("clear_recorded_events"),
   recordFrontendKey: (vk: number, action: string) => invoke<void>("record_frontend_key", { vk, action }),
-  exportEvents: (format: string) => invoke<string>("export_events", { format }),
   replayEvents: (count: number, speed: number) => invoke<string>("replay_events", { count, speed }),
 
   // Logs

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback, Fragment } from "react";
 import { api, type RecordedEvent } from "../api";
-import { vkToName } from "../components/KeyCapture";
 
 interface SavedSequence {
   id: string;
@@ -51,9 +50,6 @@ function keyToVk(key: string, keyCode: number): number {
   if (key.length === 1) return key.toUpperCase().charCodeAt(0);
   return 0;
 }
-
-const VK_TO_NAME: Record<number, string> = {};
-for (let i = 0x08; i <= 0xFF; i++) { try { VK_TO_NAME[i] = vkToName(i); } catch {} }
 
 // Keyboard keys for datalist
 const KB_KEYS = [

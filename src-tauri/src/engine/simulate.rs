@@ -35,12 +35,6 @@ pub fn simulate_key_click(vk: u32, duration_ms: u32) {
     simulate_key_release(vk);
 }
 
-pub fn simulate_mouse_click(button: u32) {
-    simulate_mouse_press(button);
-    std::thread::sleep(std::time::Duration::from_millis(10));
-    simulate_mouse_release(button);
-}
-
 pub fn simulate_mouse_press(button: u32) {
     #[cfg(windows)]
     unsafe {
