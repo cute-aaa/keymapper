@@ -81,6 +81,18 @@ export default function App() {
     localStorage.setItem("sidebar_collapsed", String(sidebarCollapsed));
   }, [sidebarCollapsed]);
 
+  // Ctrl+B to toggle sidebar
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === "b") {
+        e.preventDefault();
+        setSidebarCollapsed(prev => !prev);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   useEffect(() => {
     api.getConfig()
       .then(() => {
@@ -140,7 +152,7 @@ export default function App() {
               <button
                 key={item.key}
                 className={`nav-item ${page === item.key ? "active" : ""}`}
-                onClick={() => setPage(item.key)}
+                onClick={() => { setPage(item.key); if (sidebarCollapsed) setSidebarCollapsed(false); }}
                 title={item.label}
               >
                 <span className="nav-icon">{item.icon}</span>
