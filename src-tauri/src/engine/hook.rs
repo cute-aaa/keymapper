@@ -126,10 +126,10 @@ fn vk_to_name(vk: u16) -> String {
     match vk {
         0x08 => "Backspace".to_string(), 0x09 => "Tab".to_string(), 0x0D => "Enter".to_string(),
         0x10 => "Shift".to_string(), 0x11 => "Ctrl".to_string(), 0x12 => "Alt".to_string(),
-        0x13 => "Pause".to_string(), 0x14 => "CapsLock".to_string(), 0x1B => "Escape".to_string(),
+        0x13 => "Pause".to_string(), 0x14 => "CapsLock".to_string(), 0x5B => "Win".to_string(), 0x5C => "Win".to_string(), 0x1B => "Esc".to_string(),
         0x20 => "Space".to_string(), 0x21 => "PageUp".to_string(), 0x22 => "PageDown".to_string(),
-        0x23 => "End".to_string(), 0x24 => "Home".to_string(), 0x25 => "Left".to_string(),
-        0x26 => "Up".to_string(), 0x27 => "Right".to_string(), 0x28 => "Down".to_string(),
+        0x23 => "End".to_string(), 0x24 => "Home".to_string(), 0x25 => "←".to_string(),
+        0x26 => "↑".to_string(), 0x27 => "→".to_string(), 0x28 => "↓".to_string(),
         0x2C => "PrintScreen".to_string(), 0x2D => "Insert".to_string(), 0x2E => "Delete".to_string(),
         0x5B => "Win".to_string(), 0x5C => "Win".to_string(),
         0x60 => "Num0".to_string(), 0x61 => "Num1".to_string(), 0x62 => "Num2".to_string(),
@@ -155,11 +155,11 @@ fn vk_to_name(vk: u16) -> String {
 
 pub fn mouse_button_name(button: u16) -> String {
     match button {
-        0x0001 => "Mouse Left".to_string(), 0x0002 => "Mouse Right".to_string(),
-        0x0004 => "Mouse Middle".to_string(), 0x0005 => "XButton1".to_string(),
-        0x0006 => "XButton2".to_string(), 0x0007 => "WheelUp".to_string(),
-        0x0008 => "WheelDown".to_string(), 0x0009 => "WheelLeft".to_string(),
-        0x000A => "WheelRight".to_string(),
+        0x0001 => "鼠标左键".to_string(), 0x0002 => "鼠标右键".to_string(),
+                    0x0004 => "鼠标中键".to_string(), 0x0005 => "Mouse4".to_string(),
+                    0x0006 => "Mouse5".to_string(), 0x0007 => "WheelUp".to_string(),
+                    0x0008 => "WheelDown".to_string(), 0x0009 => "WheelLeft".to_string(),
+                    0x000A => "WheelRight".to_string(),
         _ => format!("Mouse_0x{:04X}", button),
     }
 }

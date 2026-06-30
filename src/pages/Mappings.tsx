@@ -110,23 +110,16 @@ export default function Mappings() {
     <div className="page">
       <div className="page-header">
         <h2>映射规则</h2>
-        <div className="actions">
+        <div className="actions" style={{ gap: 6 }}>
+          {mappings.length > 0 && (
+            <input ref={searchRef} type="search" placeholder="搜索..."
+              value={search} onChange={(e) => setSearch(e.target.value)}
+              style={{ width: 160, fontSize: 12, padding: "4px 10px" }} />
+          )}
           <button className="btn btn-primary" onClick={handleAdd}>+ 添加规则</button>
         </div>
       </div>
       <div className="page-body">
-        {mappings.length > 0 && (
-          <div style={{ marginBottom: 12 }}>
-            <input
-              ref={searchRef}
-              type="text"
-              placeholder="搜索规则名称或按键..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{ width: "100%", padding: "6px 10px", fontSize: 13 }}
-            />
-          </div>
-        )}
         {filtered.length === 0 ? (
           <div className="empty-state">
             <div className="icon">⌨</div>

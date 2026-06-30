@@ -63,6 +63,7 @@ const KB_KEYS = [
   "Shift","Ctrl","Alt","LShift","RShift","LCtrl","RCtrl","LAlt","RAlt",
   "Space","Enter","Tab","Esc","Backspace","Delete","Insert",
   "↑","↓","←","→","Home","End","PageUp","PageDown",
+  "CapsLock","Pause","PrintScreen","Win",
 ];
 
 // Mouse buttons for dropdown
@@ -98,6 +99,55 @@ const XBOX_KEYS = [
   { v: "↑", l: "↑" }, { v: "↓", l: "↓" }, { v: "←", l: "←" }, { v: "→", l: "→" },
 ];
 
+function normalizeKeyName(name: string, _device: string): string {
+  if (!name) return name;
+  // Auto-convert common inputs
+  const lower = name.toLowerCase().trim();
+  // Single letter → uppercase
+  if (lower.length === 1 && lower >= "a" && lower <= "z") return lower.toUpperCase();
+  // Common aliases
+  const aliases: Record<string, string> = {
+    "esc": "Esc", "escape": "Esc", "enter": "Enter", "return": "Enter",
+    "tab": "Tab", "space": "Space", " ": "Space", "spc": "Space",
+    "backspace": "Backspace", "bksp": "Backspace", "bs": "Backspace",
+    "delete": "Delete", "del": "Delete", "ins": "Insert",
+    "shift": "Shift", "ctrl": "Ctrl", "control": "Ctrl", "alt": "Alt",
+    "lshift": "LShift", "rshift": "RShift", "lctrl": "LCtrl", "rctrl": "RCtrl",
+    "lalt": "LAlt", "ralt": "RAlt",
+    "up": "↑", "down": "↓", "left": "←", "right": "→",
+    "pgup": "PageUp", "pgdn": "PageDown", "pageup": "PageUp", "pagedown": "PageDown",
+    "home": "Home", "end": "End",
+  };
+  if (aliases[lower]) return aliases[lower];
+  // F keys
+  if (/^f(1[0-2]|[1-9])$/i.test(lower)) return "F" + lower.slice(1);
+  // Mouse aliases
+  const mouseAliases: Record<string, string> = {
+    "left": "鼠标左键", "right": "鼠标右键", "middle": "鼠标中键",
+    "mouse1": "鼠标左键", "mouse2": "鼠标右键", "mouse3": "鼠标中键",
+    "m1": "鼠标左键", "m2": "鼠标右键", "m3": "鼠标中键",
+    "wheelup": "WheelUp", "wheeldown": "WheelDown",
+  };
+  if (mouseAliases[lower]) return mouseAliases[lower];
+  return name;
+}
+
+function isKeyValid(name: string, device: string): boolean {
+  if (!name || !name.trim()) return true; // empty is valid (not set)
+  if (device === "Keyboard") {
+    const n = normalizeKeyName(name, device);
+    return KB_KEYS.includes(n) || n.length === 1;
+  }
+  return getKeyOptions(device).some(o => o.v === name);
+}
+
+function isValidKey(name: string, device: string): boolean {
+  if (!name || !name.trim()) return false;
+  if (device === "Keyboard") return true; // Any key name is valid for keyboard
+  const options = getKeyOptions(device);
+  return options.some(o => o.v === name || o.l === name);
+}
+
 function getKeyOptions(device: string): { v: string; l: string }[] {
   if (device === "Mouse") return MOUSE_KEYS;
   if (device === "PS5") return PS5_KEYS;
@@ -116,7 +166,8 @@ export default function Recorder() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [hoverSeqId, setHoverSeqId] = useState<string | null>(null);
-  const [hoverEventIdx, setHoverEventIdx] = useState<number | null>(null);
+  const [editingEventIdx, setEditingEventIdx] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [replayingId, setReplayingId] = useState<string | null>(null);
   const [pausedId, setPausedId] = useState<string | null>(null);
   const [replayCount, setReplayCount] = useState(1);
@@ -127,7 +178,8 @@ export default function Recorder() {
   const timerRef = useRef<number | undefined>(undefined);
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const replayAbortRef = useRef<AbortController | null>(null);
-  const replayEventRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const replayEventRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
+  const eventsContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     try {
@@ -209,10 +261,16 @@ export default function Recorder() {
     for (let rep = 0; rep < replayCount && !ac.signal.aborted; rep++) {
       for (let i = 0; i < seq.events.length && !ac.signal.aborted; i++) {
         setReplayCurrentIdx(i);
-        // Scroll current event into view (centered)
+        // Scroll current event into view (within container only)
         requestAnimationFrame(() => {
           const el = replayEventRefs.current.get(i);
-          if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+          const container = eventsContainerRef.current;
+          if (el && container) {
+            const elTop = el.offsetTop;
+            const elH = el.offsetHeight;
+            const cH = container.clientHeight;
+            container.scrollTo({ top: elTop - cH / 2 + elH / 2, behavior: "smooth" });
+          }
         });
         const ev = seq.events[i];
         if (ev.delay_ms && ev.delay_ms > 0) {
@@ -279,15 +337,25 @@ export default function Recorder() {
 
   const isSeqActive = (id: string) => expandedId === id || editingId === id || replayingId === id || selectedIds.has(id);
 
+  const filteredSeqs = searchQuery
+    ? savedSeqs.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : savedSeqs;
+
   return (
     <div className="page">
       <div className="page-header">
         <h2>事件录制</h2>
-        <div className="actions">
+        <div className="actions" style={{ gap: 6 }}>
+          {!recording && (
+            <input type="search" placeholder="搜索序列..." value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") setSearchQuery(""); }}
+              style={{ width: 140, fontSize: 12, padding: "4px 10px" }} />
+          )}
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-secondary)" }}>
-            <button className={`toggle ${mergeUpDown ? "on" : ""}`} onClick={() => setMergeUpDown(!mergeUpDown)} />智能合并</label>
-          <button className="btn" onClick={handleImport}>📥 导入</button>
-          {recording && <button className="btn btn-danger" onClick={async () => { await api.clearRecordedEvents(); setEvents([]); }}>清空</button>}
+            按键合并<button className={`toggle ${mergeUpDown ? "on" : ""}`} onClick={() => setMergeUpDown(!mergeUpDown)} /></label>
+          <button className="btn btn-sm" onClick={handleImport}>导入</button>
+          {recording && <button className="btn btn-sm btn-danger" onClick={async () => { await api.clearRecordedEvents(); setEvents([]); }}>清空</button>}
           <button className={`btn ${recording ? "btn-danger" : "btn-primary"}`} onClick={toggleRecording}>{recording ? "⏹ 停止 (F9)" : "⏺ 开始录制 (F9)"}</button>
         </div>
       </div>
@@ -295,31 +363,35 @@ export default function Recorder() {
 
         {/* Saved sequences — hidden during recording */}
         {!recording && <div style={{ marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ fontSize: 14, fontWeight: 500 }}>已保存的序列 ({savedSeqs.length})</span>
-            {selectedIds.size > 0 && (<div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "var(--accent)" }}>已选 {selectedIds.size} 个</span>
-              <button className="btn btn-sm" onClick={handleBatchExport}>批量导出</button>
-              <button className="btn btn-sm btn-danger" onClick={handleBatchDelete}>批量删除</button>
-              <button className="btn btn-sm" onClick={() => setSelectedIds(new Set())}>取消</button>
-            </div>)}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, minHeight: 28 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-secondary)" }}>
+              {filteredSeqs.length}{searchQuery ? ` / ${savedSeqs.length}` : ""} 个序列
+              {selectedIds.size > 0 && <span style={{ marginLeft: 8, color: "var(--accent)" }}>已选 {selectedIds.size}</span>}
+            </span>
+            {selectedIds.size > 0 && (
+              <div style={{ display: "flex", gap: 4 }}>
+                <button className="btn btn-sm" onClick={handleBatchExport}>导出选中</button>
+                <button className="btn btn-sm btn-danger" onClick={handleBatchDelete}>删除选中</button>
+                <button className="btn btn-sm" onClick={() => setSelectedIds(new Set())}>取消</button>
+              </div>
+            )}
           </div>
           {savedSeqs.length === 0 ? (
-            <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0, padding: 12, background: "var(--surface)", borderRadius: 8 }}>暂无保存的序列。录制结束后点击「保存」添加。</p>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, padding: 16, background: "var(--surface)", borderRadius: 8, textAlign: "center" }}>暂无保存的序列</p>
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <table className="data-table" style={{ tableLayout: "fixed" }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  <th style={{ textAlign: "left", padding: "4px 8px", color: "var(--text-muted)", fontWeight: 400, width: 10 }}> </th>
-                  <th style={{ textAlign: "left", padding: "4px 8px", color: "var(--text-muted)", fontWeight: 400 }}>名称</th>
-                  <th style={{ textAlign: "left", padding: "4px 8px", color: "var(--text-muted)", fontWeight: 400, width: 50 }}>事件</th>
-                  <th style={{ textAlign: "left", padding: "4px 8px", color: "var(--text-muted)", fontWeight: 400, width: 50 }}>快捷键</th>
-                  <th style={{ textAlign: "left", padding: "4px 8px", color: "var(--text-muted)", fontWeight: 400, width: 140 }}>保存时间</th>
-                  <th style={{ textAlign: "right", padding: "4px 8px", color: "var(--text-muted)", fontWeight: 400, width: 120 }}>操作</th>
+                <tr>
+                  <th style={{ width: 24 }}> </th>
+                  <th>名称</th>
+                  <th style={{ width: 55 }}>事件</th>
+                  <th style={{ width: 80 }}>快捷键</th>
+                  <th style={{ width: 150 }}>保存时间</th>
+                  <th style={{ width: 320, textAlign: "right", whiteSpace: "nowrap" }}>操作</th>
                 </tr>
               </thead>
               <tbody>
-              {savedSeqs.map((seq) => {
+              {filteredSeqs.map((seq) => {
                 const isActive = isSeqActive(seq.id);
                 const isHover = hoverSeqId === seq.id;
                 const showUI = isActive || isHover;
@@ -327,144 +399,173 @@ export default function Recorder() {
                 const isReplayHover = hoverReplayBtn === seq.id;
                 return (
                   <Fragment key={seq.id}>
-                  <tr
+                  <tr className={`seq-row ${showUI ? "active" : ""}`}
                     onMouseEnter={() => setHoverSeqId(seq.id)}
                     onMouseLeave={() => { setHoverSeqId(null); setHoverReplayBtn(null); }}
                     onClick={(e) => { if (e.ctrlKey || e.metaKey) { toggleSelect(seq.id, e); } else if (!isReplaying) { setExpandedId(expandedId === seq.id ? null : seq.id); } }}
                     style={{
                       cursor: "pointer",
-                      background: isReplaying ? "var(--accent-bg)" : selectedIds.has(seq.id) ? "var(--accent-bg)" : expandedId === seq.id ? "var(--hover)" : isHover ? "var(--hover)" : "transparent",
-                      borderLeft: isReplaying ? "3px solid var(--accent)" : selectedIds.has(seq.id) ? "3px solid var(--accent)" : "3px solid transparent",
-                      transition: "all 0.15s",
+                      background: isReplaying ? "var(--accent-bg)" : selectedIds.has(seq.id) ? "var(--accent-bg)" : expandedId === seq.id ? "var(--bg-hover)" : undefined,
+                      borderLeft: isReplaying ? "3px solid var(--accent)" : selectedIds.has(seq.id) ? "3px solid var(--accent)" : expandedId === seq.id ? "3px solid var(--text-muted)" : "3px solid transparent",
                     }}>
-                    <td style={{ padding: "4px 8px", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>{expandedId === seq.id ? "▼" : "›"}</td>
-                    <td style={{ padding: "4px 8px" }}>
+                    <td style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-muted)" }}>{expandedId === seq.id ? "▾" : "›"}</td>
+                    <td>
                       {editingId === seq.id ? (
-                        <input type="text" value={editingName} autoFocus onChange={(e) => setEditingName(e.target.value)} onBlur={() => handleRename(seq.id)} onKeyDown={(e) => { if (e.key === "Enter") handleRename(seq.id); }} onClick={(e) => e.stopPropagation()} style={{ width: "100%", padding: "2px 6px", fontSize: 12 }} />
+                        <input type="text" value={editingName} autoFocus onChange={(e) => setEditingName(e.target.value)} onBlur={() => handleRename(seq.id)} onKeyDown={(e) => { if (e.key === "Enter") handleRename(seq.id); }} onClick={(e) => e.stopPropagation()} style={{ width: "100%", padding: "4px 8px", fontSize: 13 }} />
                       ) : (
                         <span style={{ fontWeight: isReplaying ? 600 : 500, color: isReplaying ? "var(--accent)" : undefined }}>{seq.name}</span>
                       )}
-                      {isReplaying && <span style={{ fontSize: 10, color: "var(--accent)", marginLeft: 6 }}>回放中 {replayCurrentIdx + 1}/{seq.events.length}</span>}
+                      {isReplaying && <span style={{ fontSize: 11, color: "var(--accent)", marginLeft: 8 }}>回放中 {replayCurrentIdx + 1}/{seq.events.length}</span>}
                     </td>
-                    <td style={{ padding: "4px 8px", color: "var(--text-secondary)" }}>{seq.events.length}</td>
-                    <td style={{ padding: "4px 8px" }}>{seq.replayKey && <span className="key-badge" style={{ fontSize: 9 }}>{seq.replayKey}</span>}</td>
-                    <td style={{ padding: "4px 8px", color: "var(--text-muted)", fontSize: 10 }}>{seq.savedAt}</td>
-                    <td style={{ padding: "4px 8px", textAlign: "right" }}>
-                      {showUI && (
-                        <div style={{ display: "inline-flex", gap: 3, alignItems: "center" }}>
-                          {/* Replay area: hover expands to button group */}
+                    <td style={{ color: "var(--text-secondary)" }}>{seq.events.length}</td>
+                    <td>{seq.replayKey && <span className="key-badge">{seq.replayKey}</span>}</td>
+                    <td style={{ color: "var(--text-muted)", fontSize: 12 }}>{seq.savedAt}</td>
+                    <td style={{ textAlign: "right" }}>
+                      <div className="actions" style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                          {/* Replay area */}
                           <div
                             onMouseEnter={() => setHoverReplayBtn(seq.id)}
                             onMouseLeave={() => setHoverReplayBtn(null)}
-                            style={{ display: "flex", alignItems: "center", gap: 3, transition: "all 0.2s ease" }}>
+                            style={{ display: "inline-flex", alignItems: "center" }}>
                             {isReplaying ? (
-                              // Replaying: show stop button
-                              <button className="btn btn-sm btn-danger" style={{ padding: "1px 8px", fontSize: 11 }}
-                                onClick={(e) => { e.stopPropagation(); doReplay(seq.id); }}>■ 停止</button>
+                              <div className="toolbar-group">
+                                <button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); doReplay(seq.id); }}>■ 停止</button>
+                              </div>
                             ) : isReplayHover ? (
-                              // Hover: expand to button group
-                              <div style={{ display: "flex", alignItems: "center", gap: 3, background: "var(--hover)", borderRadius: 4, padding: "1px 4px", animation: "fadeIn 0.15s" }}>
-                                <select value={replayCount} onChange={(e) => { e.stopPropagation(); setReplayCount(parseInt(e.target.value)); }} onClick={(e) => e.stopPropagation()}
-                                  style={{ padding: "0 2px", fontSize: 10, width: 36, border: "1px solid var(--border)", borderRadius: 3, background: "var(--surface)" }}>
-                                  {[1,2,3,5,10,20].map(n => <option key={n} value={n}>{n}次</option>)}
-                                </select>
-                                <select value={replaySpeed} onChange={(e) => { e.stopPropagation(); setReplaySpeed(parseFloat(e.target.value)); }} onClick={(e) => e.stopPropagation()}
-                                  style={{ padding: "0 2px", fontSize: 10, width: 40, border: "1px solid var(--border)", borderRadius: 3, background: "var(--surface)" }}>
-                                  {[0.5,1,1.5,2,4].map(s => <option key={s} value={s}>{s}x</option>)}
-                                </select>
-                                <button className="btn btn-sm btn-primary" style={{ padding: "1px 8px", fontSize: 11 }}
-                                  onClick={(e) => { e.stopPropagation(); doReplay(seq.id); }}>▶ 回放</button>
+                              <div className="toolbar-group" style={{ animation: "slideIn 0.15s ease-out" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 2, padding: "0 6px" }}>
+                                  <input type="number" min={1} max={99} value={replayCount}
+                                    onChange={(e) => { e.stopPropagation(); setReplayCount(Math.max(1, parseInt(e.target.value) || 1)); }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{ width: 32, fontSize: 11, textAlign: "center", border: "none", background: "transparent", padding: 0, height: 22 }} />
+                                  <span style={{ fontSize: 10, color: "var(--text-muted)" }}>次</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 2, padding: "0 6px", borderLeft: "1px solid var(--border)" }}>
+                                  <input type="number" min={0.25} max={16} step={0.25} value={replaySpeed}
+                                    onChange={(e) => { e.stopPropagation(); setReplaySpeed(Math.max(0.25, parseFloat(e.target.value) || 1)); }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{ width: 36, fontSize: 11, textAlign: "center", border: "none", background: "transparent", padding: 0, height: 22 }} />
+                                  <span style={{ fontSize: 10, color: "var(--text-muted)" }}>x</span>
+                                </div>
+                                <button className="btn btn-sm btn-primary" style={{ borderRadius: 0, border: "none" }} onClick={(e) => { e.stopPropagation(); doReplay(seq.id); }}>▶ 回放</button>
                               </div>
                             ) : (
-                              // Default: single replay button
-                              <button className="btn btn-sm" style={{ padding: "1px 6px", fontSize: 11 }}
-                                onClick={(e) => { e.stopPropagation(); doReplay(seq.id); }}>▶</button>
+                              <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); doReplay(seq.id); }}>▶</button>
                             )}
                           </div>
                           {!isReplaying && <>
-                            <button className="btn btn-sm" style={{ padding: "1px 4px", fontSize: 11 }} onClick={(e) => { e.stopPropagation(); setEditingId(seq.id); setEditingName(seq.name); setExpandedId(seq.id); }}>✏️</button>
-                            <button className="btn btn-sm" style={{ padding: "1px 4px", fontSize: 11 }} onClick={(e) => { e.stopPropagation(); handleExportSeq(seq); }}>💾</button>
-                            <button className="btn btn-sm btn-danger" style={{ padding: "1px 4px", fontSize: 11 }} onClick={(e) => { e.stopPropagation(); handleDeleteSeq(seq.id); }}>✕</button>
+                            <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setEditingId(seq.id); setEditingName(seq.name); setExpandedId(seq.id); }}>✏️</button>
+                            <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleExportSeq(seq); }}>💾</button>
+                            <button className="btn btn-sm btn-danger" onClick={(e) => { e.stopPropagation(); handleDeleteSeq(seq.id); }}>✕</button>
                           </>}
                         </div>
-                      )}
                     </td>
                   </tr>
-                    {/* Expanded: events list */}
+                    {/* Expanded events */}
                     {expandedId === seq.id && (
-                      <tr><td colSpan={6} style={{ padding: 0, background: "var(--surface)", borderBottom: "1px solid var(--border)" }}><div>
+                      <tr><td colSpan={6} style={{ padding: 0 }}>
+                        <div style={{ background: "var(--surface)", borderRadius: "0 0 8px 8px", overflow: "hidden", marginBottom: 4 }}>
                         {/* Edit bar */}
-                        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 10px", borderBottom: "1px solid var(--border)", fontSize: 11 }}>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "6px 12px", borderBottom: "1px solid var(--border)", fontSize: 12 }}>
                           <span style={{ color: "var(--text-secondary)" }}>快捷键:</span>
                           {capturingKeyId === seq.id ? (
                             <span style={{ color: "var(--accent)", cursor: "pointer" }} onClick={() => setCapturingKeyId(null)}>按下按键捕获... (点击取消)</span>
                           ) : (
-                            <button className="btn btn-sm" style={{ padding: "0 6px", fontSize: 10 }} onClick={(e) => { e.stopPropagation(); setCapturingKeyId(seq.id); }}>
-                              {seq.replayKey || "捕获"}
+                            <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setCapturingKeyId(seq.id); }}>
+                              {seq.replayKey || "按任意键绑定"}
                             </button>
                           )}
-                          {seq.replayKey && <button className="btn btn-sm" style={{ padding: "0 4px", fontSize: 10 }} onClick={(e) => { e.stopPropagation(); handleSetReplayKey(seq.id, ""); }}>清除</button>}
+                          {seq.replayKey && <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); handleSetReplayKey(seq.id, ""); }}>清除</button>}
                         </div>
                         {/* Event table */}
-                        <div style={{ maxHeight: 240, overflowY: "auto" }}>
+                        <div ref={eventsContainerRef} style={{ maxHeight: 260, overflowY: "auto" }}>
                           {(() => { const elapsed = toElapsed(seq.events); return (
-                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                          <table className="data-table" style={{ fontSize: 12 }}>
                             <thead>
-                              <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                                <th style={{ textAlign: "left", padding: "2px 6px", color: "var(--text-muted)", fontWeight: 400, width: 60 }}>时间</th>
-                                <th style={{ textAlign: "left", padding: "2px 6px", color: "var(--text-muted)", fontWeight: 400, width: 50 }}>设备</th>
-                                <th style={{ textAlign: "left", padding: "2px 6px", color: "var(--text-muted)", fontWeight: 400 }}>按键</th>
-                                <th style={{ textAlign: "left", padding: "2px 6px", color: "var(--text-muted)", fontWeight: 400, width: 60 }}>动作</th>
-                                <th style={{ textAlign: "left", padding: "2px 6px", color: "var(--text-muted)", fontWeight: 400, width: 60 }}>延时</th>
+                              <tr>
+                                <th style={{ width: 65 }}>时间</th>
+                                <th style={{ width: 55 }}>设备</th>
+                                <th>按键</th>
+                                <th style={{ width: 65 }}>动作</th>
+                                <th style={{ width: 65 }}>延时</th>
                               </tr>
                             </thead>
                             <tbody>
                               {seq.events.map((ev, i) => {
-                                const isEvHover = hoverEventIdx === i && expandedId === seq.id && !isReplaying;
+                                const isEvEdit = editingEventIdx === i && expandedId === seq.id && !isReplaying;
                                 const isReplayEv = isReplaying && replayCurrentIdx === i;
                                 return (
                                   <tr key={i}
                                     ref={(el) => { if (el) replayEventRefs.current.set(i, el); else replayEventRefs.current.delete(i); }}
-                                    onMouseEnter={() => setHoverEventIdx(i)}
-                                    onMouseLeave={() => setHoverEventIdx(null)}
+                                    onClick={(e) => { if (!isReplaying && !(e.target as HTMLElement).closest("input,select,button")) setEditingEventIdx(editingEventIdx === i ? null : i); }}
                                     style={{
-                                      background: isReplayEv ? "var(--accent-bg)" : isEvHover ? "var(--hover)" : "transparent",
+                                      background: isReplayEv ? "var(--accent-bg)" : isEvEdit ? "var(--hover)" : "transparent",cursor: isReplaying ? "default" : "pointer",
                                       borderLeft: isReplayEv ? "3px solid var(--accent)" : "3px solid transparent",
                                       transition: "all 0.15s",
                                     }}>
-                                    <td style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)", fontSize: 10, padding: "2px 6px" }}>{elapsed[i]}</td>
-                                    {isEvHover ? (
+                                    <td style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>{elapsed[i]}</td>
+                                    {isEvEdit ? (
                                       <>
-                                        <td style={{ padding: "2px 4px" }}>
-                                          <select value={ev.device} onChange={(e) => handleUpdateEvent(seq.id, i, { device: e.target.value })} style={{ padding: "0 2px", fontSize: 10, width: 50 }}>
+                                        <td>
+                                          <select value={ev.device} onChange={(e) => handleUpdateEvent(seq.id, i, { device: e.target.value })} onClick={(e) => e.stopPropagation()} style={{ fontSize: 12 }}>
                                             <option value="Keyboard">键盘</option><option value="Mouse">鼠标</option><option value="PS5">PS5</option><option value="Xbox">Xbox</option>
                                           </select>
                                         </td>
-                                        <td style={{ padding: "2px 4px" }}>
-                                          {ev.device === "Keyboard" ? (
-                                            <input type="text" value={ev.key_name} list="kb-keys" onChange={(e) => handleUpdateEvent(seq.id, i, { key_name: e.target.value })} style={{ width: 60, padding: "0 2px", fontSize: 10 }} />
-                                          ) : (
-                                            <select value={ev.key_name} onChange={(e) => handleUpdateEvent(seq.id, i, { key_name: e.target.value })} style={{ padding: "0 2px", fontSize: 10, minWidth: 60 }}>
+                                        <td>
+                                          {ev.device === "Keyboard" ? (() => {
+                                            const normalized = normalizeKeyName(ev.key_name, "Keyboard");
+                                            const isValid = isKeyValid(ev.key_name, "Keyboard");
+                                            return (
+                                              <div style={{ position: "relative", width: "100%" }}>
+                                                <input type="text" value={ev.key_name} list="kb-keys"
+                                                  onChange={(e) => handleUpdateEvent(seq.id, i, { key_name: e.target.value })}
+                                                  onBlur={() => { if (normalized !== ev.key_name) handleUpdateEvent(seq.id, i, { key_name: normalized }); }}
+                                                  onKeyDown={(e) => { if (e.key === "Enter") { if (normalized !== ev.key_name) handleUpdateEvent(seq.id, i, { key_name: normalized }); setEditingEventIdx(null); } }}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  style={{
+                                                    width: "100%", fontSize: 12,
+                                                    paddingRight: ev.key_name ? 22 : 8,
+                                                    ...(!isValid ? { borderColor: "var(--danger)", boxShadow: "0 0 0 2px rgba(239,68,68,0.15)" } : {}),
+                                                  }} />
+                                                {ev.key_name && (
+                                                  <button onClick={(e) => { e.stopPropagation(); handleUpdateEvent(seq.id, i, { key_name: "" }); }}
+                                                    style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 11, padding: 0, lineHeight: 1 }}
+                                                    title="清空">✕</button>
+                                                )}
+                                              </div>
+                                            );
+                                          })() : (
+                                            <select value={ev.key_name} onChange={(e) => handleUpdateEvent(seq.id, i, { key_name: e.target.value })} onClick={(e) => e.stopPropagation()}
+                                              style={{ fontSize: 12, minWidth: 60, ...(!isValidKey(ev.key_name, ev.device) ? { borderColor: "var(--danger)", boxShadow: "0 0 0 2px rgba(239,68,68,0.15)" } : {}) }}>
+                                              <option value="">-- 选择 --</option>
                                               {getKeyOptions(ev.device).map(k => <option key={k.v} value={k.v}>{k.l}</option>)}
                                             </select>
                                           )}
                                         </td>
-                                        <td style={{ padding: "2px 4px" }}>
-                                          <select value={ev.action} onChange={(e) => handleUpdateEvent(seq.id, i, { action: e.target.value })} style={{ padding: "0 2px", fontSize: 10, width: 55 }}>
+                                        <td>
+                                          <select value={ev.action} onChange={(e) => handleUpdateEvent(seq.id, i, { action: e.target.value })} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === "Enter") setEditingEventIdx(null); }} style={{ fontSize: 12 }}>
                                             <option value="Press">按下</option><option value="Release">释放</option><option value="按下+释放">按下+释放</option>
                                           </select>
                                         </td>
-                                        <td style={{ padding: "2px 4px", display: "flex", gap: 3, alignItems: "center" }}>
-                                          <input type="number" value={ev.delay_ms ?? ""} placeholder="ms" onChange={(e) => handleUpdateEvent(seq.id, i, { delay_ms: e.target.value ? parseInt(e.target.value) : undefined })} style={{ width: 40, padding: "0 2px", fontSize: 10 }} />
-                                          <button className="btn btn-sm" style={{ padding: "0 3px", fontSize: 9 }} onClick={() => handleDeleteEvent(seq.id, i)}>✕</button>
+                                        <td style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                          <input type="number" value={ev.delay_ms ?? ""} placeholder="ms" min={0}
+                                            onChange={(e) => handleUpdateEvent(seq.id, i, { delay_ms: e.target.value ? parseInt(e.target.value) : undefined })}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onKeyDown={(e) => { if (e.key === "Enter") setEditingEventIdx(null); }}
+                                            style={{ width: 60, fontSize: 12 }} />
+                                          
+                                          <button className="btn btn-sm btn-danger" style={{ padding: "2px 6px", fontSize: 10 }} onClick={(e) => { e.stopPropagation(); handleDeleteEvent(seq.id, i); }}>✕</button>
                                         </td>
                                       </>
                                     ) : (
                                       <>
-                                        <td style={{ padding: "2px 6px", color: isReplayEv ? "var(--accent)" : undefined }}>{ev.device}</td>
-                                        <td style={{ padding: "2px 6px" }}><span className="key-badge" style={{ fontSize: 10, ...(isReplayEv ? { background: "var(--accent)", color: "#fff" } : {}) }}>{ev.key_name}</span></td>
-                                        <td style={{ padding: "2px 6px", color: getActionColor(ev.action), fontWeight: isReplayEv ? 600 : 400 }}>{getActionLabel(ev.action)}</td>
-                                        <td style={{ padding: "2px 6px", fontFamily: "var(--font-mono)", color: "var(--text-muted)", fontSize: 10 }}>{ev.delay_ms != null ? `+${ev.delay_ms}ms` : ""}</td>
+                                        <td style={{ color: isReplayEv ? "var(--accent)" : undefined }}>{ev.device}</td>
+                                        <td><span className="key-badge" style={{
+                                          ...(isReplayEv ? { background: "var(--accent)", color: "#fff" } : {}),
+                                          ...(!isKeyValid(ev.key_name, ev.device) ? { borderColor: "var(--danger)", color: "var(--danger)", boxShadow: "0 0 0 2px rgba(239,68,68,0.15)" } : {}),
+                                        }}>{ev.key_name || <span style={{ color: "var(--text-muted)" }}>空</span>}</span></td>
+                                        <td style={{ color: getActionColor(ev.action), fontWeight: isReplayEv ? 600 : 400 }}>{getActionLabel(ev.action)}</td>
+                                        <td style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>{ev.delay_ms != null ? `+${ev.delay_ms}ms` : ""}</td>
                                       </>
                                     )}
                                   </tr>
@@ -474,7 +575,8 @@ export default function Recorder() {
                           </table>
                           ); })()}
                         </div>
-                      </div></td></tr>
+                        </div>
+                      </td></tr>
                     )}
                   </Fragment>
                 );
@@ -491,9 +593,9 @@ export default function Recorder() {
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, padding: "8px 12px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--accent)" }}>
             <span style={{ fontSize: 13, fontWeight: 500 }}>🎬 新录制 ({pendingSave.length} 事件)</span>
             <div style={{ flex: 1 }} />
-            <input type="text" placeholder="序列名称（可选）" id="pending-name" style={{ width: 160, padding: "4px 8px", fontSize: 12 }} />
-            <button className="btn btn-primary btn-sm" onClick={() => { const el = document.getElementById("pending-name") as HTMLInputElement; handleSavePending(el?.value); }}>💾 保存</button>
-            <button className="btn btn-sm" onClick={() => { setPendingSave(null); setEvents([]); }}>丢弃</button>
+            <input type="text" placeholder="序列名称（可选）" id="pending-name" style={{ width: 200 }} />
+            <button className="btn btn-primary" onClick={() => { const el = document.getElementById("pending-name") as HTMLInputElement; handleSavePending(el?.value); }}>💾 保存</button>
+            <button className="btn" onClick={() => { setPendingSave(null); setEvents([]); }}>丢弃</button>
           </div>
         )}
 
@@ -502,7 +604,7 @@ export default function Recorder() {
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12, padding: "8px 12px", background: "var(--surface)", borderRadius: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 500 }}>当前事件 ({events.length})</span>
             <div style={{ flex: 1 }} />
-            <button className="btn btn-primary btn-sm" onClick={doReplayCurrent} disabled={replayingId !== null}>{replayingId === "current" ? "回放中..." : "▶ 回放"}</button>
+            <button className="btn btn-primary" onClick={doReplayCurrent} disabled={replayingId !== null}>{replayingId === "current" ? "回放中..." : "▶ 回放"}</button>
           </div>
         )}
 
