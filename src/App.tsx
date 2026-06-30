@@ -70,7 +70,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("mappings");
   const [tauriOk, setTauriOk] = useState<boolean | null>(null);
   const [errMsg, setErrMsg] = useState<string>("");
-  const [theme, setTheme] = useState<string>(() => localStorage.getItem("theme") || "dark");
+  const [theme, setTheme] = useState<string>(() => localStorage.getItem("theme") || "light");
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => localStorage.getItem("sidebar_collapsed") === "true");
 
   useEffect(() => {

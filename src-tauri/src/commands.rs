@@ -43,9 +43,14 @@ pub fn window_maximize(app: AppHandle) {
 }
 
 #[tauri::command]
-pub fn window_close(app: AppHandle) {
+pub fn window_close(app: AppHandle, state: State<'_, AppState>) {
+    let config = state.config.get_config();
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.close();
+        if config.minimize_to_tray {
+            let _ = window.hide();
+        } else {
+            let _ = window.close();
+        }
     }
 }
 
