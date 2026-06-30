@@ -55,6 +55,6 @@ set LIB=%MSVC%\lib\x64;%SDK%\Lib\%SDK_VER%\um\x64;%SDK%\Lib\%SDK_VER%\ucrt\x64
 
 cd /d "%~dp0src-tauri"
 echo Starting cargo build...
-cargo build 2>&1
+cargo build --bins --features tauri/custom-protocol --release 2>&1
 echo.
 echo DONE EXIT_CODE=%ERRORLEVEL%
