@@ -1,12 +1,11 @@
-import { useState, useEffect, Component, lazy, Suspense, type ReactNode } from "react";
+import { useState, useEffect, Component, type ReactNode } from "react";
+import Mappings from "./pages/Mappings";
+import Devices from "./pages/Devices";
+import Recorder from "./pages/Recorder";
+import Logs from "./pages/Logs";
+import Settings from "./pages/Settings";
 import { api } from "./api";
 import "./styles/global.css";
-
-const Mappings = lazy(() => import("./pages/Mappings"));
-const Devices = lazy(() => import("./pages/Devices"));
-const Recorder = lazy(() => import("./pages/Recorder"));
-const Logs = lazy(() => import("./pages/Logs"));
-const Settings = lazy(() => import("./pages/Settings"));
 
 type Page = "mappings" | "devices" | "recorder" | "logs" | "settings";
 
@@ -153,11 +152,7 @@ export default function App() {
             {!sidebarCollapsed && <span className="version">v0.1.0</span>}
           </div>
         </aside>
-        <main className="main">
-          <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)" }}>加载中...</div>}>
-            {renderPage()}
-          </Suspense>
-        </main>
+        <main className="main">{renderPage()}</main>
       </div>
     </ErrorBoundary>
   );
