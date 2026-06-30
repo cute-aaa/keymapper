@@ -70,11 +70,16 @@ export default function App() {
   const [tauriOk, setTauriOk] = useState<boolean | null>(null);
   const [errMsg, setErrMsg] = useState<string>("");
   const [theme, setTheme] = useState<string>(() => localStorage.getItem("theme") || "dark");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => localStorage.getItem("sidebar_collapsed") === "true");
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("sidebar_collapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     api.getConfig()
@@ -122,10 +127,13 @@ export default function App() {
     <ErrorBoundary>
       <Titlebar />
       <div className="app">
-        <aside className="sidebar">
+        <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
           <div className="logo">
             <span className="logo-icon">🎮</span>
-            <span className="logo-text">KeyMapper</span>
+            {!sidebarCollapsed && <span className="logo-text">KeyMapper</span>}
+            <button className="sidebar-toggle" onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title={sidebarCollapsed ? "展开" : "收起"}>
+              {sidebarCollapsed ? "›" : "‹"}
+            </button>
           </div>
           <nav className="nav">
             {navItems.map((item) => (
@@ -133,14 +141,15 @@ export default function App() {
                 key={item.key}
                 className={`nav-item ${page === item.key ? "active" : ""}`}
                 onClick={() => setPage(item.key)}
+                title={item.label}
               >
                 <span className="nav-icon">{item.icon}</span>
-                <span className="nav-label">{item.label}</span>
+                {!sidebarCollapsed && <span className="nav-label">{item.label}</span>}
               </button>
             ))}
           </nav>
           <div className="sidebar-footer">
-            <span className="version">v0.1.0</span>
+            {!sidebarCollapsed && <span className="version">v0.1.0</span>}
           </div>
         </aside>
         <main className="main">{renderPage()}</main>
