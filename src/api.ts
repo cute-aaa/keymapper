@@ -117,7 +117,9 @@ export const api = {
   stopRecording: () => invoke<void>("stop_recording"),
   getRecordedEvents: () => invoke<RecordedEvent[]>("get_recorded_events"),
   clearRecordedEvents: () => invoke<void>("clear_recorded_events"),
+  recordFrontendKey: (vk: number, action: string) => invoke<void>("record_frontend_key", { vk, action }),
   exportEvents: (format: string) => invoke<string>("export_events", { format }),
+  replayEvents: (count: number, speed: number) => invoke<string>("replay_events", { count, speed }),
 
   // Logs
   getLogs: () => invoke<LogEntry[]>("get_logs"),

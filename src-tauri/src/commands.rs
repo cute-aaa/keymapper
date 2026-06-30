@@ -189,6 +189,57 @@ pub fn clear_recorded_events() {
 }
 
 #[tauri::command]
+pub fn record_frontend_key(vk: u32, action: String) {
+    hook::record_frontend_key(vk, &action);
+}
+
+#[tauri::command]
+pub fn replay_events(count: u32, speed: f64) -> String {
+    let events = hook::get_recorded_events();
+    if events.is_empty() {
+        return "没有录制的事件".to_string();
+    }
+    let count = count.max(1).min(100);
+    let speed = speed.clamp(0.1, 10.0);
+
+    std::thread::spawn(move || {
+        for _ in 0..count {
+            for event in &events {
+                // Apply delay
+                if let Some(delay) = event.delay_ms {
+                    let adjusted = (delay as f64 / speed) as u64;
+                    if adjusted > 0 {
+                        std::thread::sleep(std::time::Duration::from_millis(adjusted));
+                    }
+                }
+
+                // Simulate the event
+                if event.device == "Mouse" {
+                    // Mouse button
+                    match event.action.as_str() {
+                        "Press" => crate::engine::simulate::simulate_mouse_press(event.key_code),
+                        "Release" => crate::engine::simulate::simulate_mouse_release(event.key_code),
+                        _ => {}
+                    }
+                } else {
+                    // Keyboard/gamepad key
+                    match event.action.as_str() {
+                        "Press" => crate::engine::simulate::simulate_key_press(event.key_code),
+                        "Release" => crate::engine::simulate::simulate_key_release(event.key_code),
+                        "按下+释放" | "点击" => {
+                            crate::engine::simulate::simulate_key_click(event.key_code, 50);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    });
+
+    format!("开始回放 {} 次 ({}x 速度)", count, speed)
+}
+
+#[tauri::command]
 pub fn export_events(format: String) -> String {
     let events = hook::get_recorded_events();
     match format.as_str() {

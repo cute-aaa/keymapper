@@ -58,27 +58,28 @@ pub fn trigger_vibration(intensity: u16, duration_ms: u32) {
 
 lazy_static::lazy_static! {
     static ref RECORDED_EVENTS: Arc<Mutex<Vec<RecordedEvent>>> = Arc::new(Mutex::new(Vec::new()));
-    static ref IS_RECORDING: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
-    static ref LAST_EVENT_TIME: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
     static ref LOGS: Arc<Mutex<Vec<LogEntry>>> = Arc::new(Mutex::new(Vec::new()));
     static ref PRESSED_KEYS: Arc<Mutex<Vec<u32>>> = Arc::new(Mutex::new(Vec::new()));
 }
 
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+static IS_RECORDING: AtomicBool = AtomicBool::new(false);
+static LAST_EVENT_TIME: AtomicU64 = AtomicU64::new(0);
+
 pub fn start_recording() {
-    let mut recording = IS_RECORDING.lock();
-    *recording = true;
+    IS_RECORDING.store(true, Ordering::Relaxed);
     push_log("info", "Recording started");
     info!("Recording started");
 }
 
 pub fn stop_recording() {
-    let mut recording = IS_RECORDING.lock();
-    *recording = false;
+    IS_RECORDING.store(false, Ordering::Relaxed);
     push_log("info", "Recording stopped");
     info!("Recording stopped");
 }
 
-pub fn is_recording() -> bool { *IS_RECORDING.lock() }
+pub fn is_recording() -> bool { IS_RECORDING.load(Ordering::Relaxed) }
 pub fn get_recorded_events() -> Vec<RecordedEvent> { RECORDED_EVENTS.lock().clone() }
 pub fn clear_recorded_events() { RECORDED_EVENTS.lock().clear(); }
 pub fn get_logs() -> Vec<LogEntry> { LOGS.lock().clone() }
@@ -100,6 +101,25 @@ fn record_event(event: RecordedEvent) {
         events.push(event);
         if events.len() > 10000 { events.remove(0); }
     }
+}
+
+/// Record a keyboard event from the frontend (for in-app key capture)
+pub fn record_frontend_key(vk: u32, action: &str) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+    let last_val = LAST_EVENT_TIME.load(std::sync::atomic::Ordering::Relaxed);
+    let delay = if last_val == 0 { 0 } else { now - last_val };
+    LAST_EVENT_TIME.store(now, std::sync::atomic::Ordering::Relaxed);
+
+    record_event(RecordedEvent {
+        timestamp: chrono::Local::now().format("%H:%M:%S%.3f").to_string(),
+        device: "Keyboard".to_string(),
+        key_name: vk_to_name(vk as u16),
+        key_code: vk,
+        action: action.to_string(),
+        mapped: false,
+        mapping_rule: None,
+        delay_ms: Some(delay),
+    });
 }
 
 fn vk_to_name(vk: u16) -> String {
@@ -197,10 +217,13 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lpar
             _ => "Unknown",
         };
 
+        // Always log to verify hook is active
+        tracing::debug!("KB hook: vk=0x{:02X} action={} recording={}", vk, action, is_recording());
+
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
-        let mut last = LAST_EVENT_TIME.lock();
-        let delay = if *last == 0 { 0 } else { now - *last };
-        *last = now;
+        let last_val = LAST_EVENT_TIME.load(Ordering::Relaxed);
+        let delay = if last_val == 0 { 0 } else { now - last_val };
+        LAST_EVENT_TIME.store(now, Ordering::Relaxed);
 
         let trigger_mode = if action == "Press" { TriggerMode::Press } else { TriggerMode::Release };
         let modifiers = get_current_modifiers();
@@ -252,6 +275,7 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lpar
             action: action.to_string(), mapped: !matches.is_empty(),
             mapping_rule: matches.first().map(|r| r.name.clone()), delay_ms: Some(delay),
         });
+        tracing::info!("KB recorded: vk=0x{:02X} action={} recording={}", vk, action, is_recording());
 
         if action == "Press" {
             let mut pressed = PRESSED_KEYS.lock();
@@ -282,9 +306,9 @@ pub unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam:
 
         if button != 0 {
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
-            let mut last = LAST_EVENT_TIME.lock();
-            let delay = if *last == 0 { 0 } else { now - *last };
-            *last = now;
+            let last_val = LAST_EVENT_TIME.load(Ordering::Relaxed);
+            let delay = if last_val == 0 { 0 } else { now - last_val };
+            LAST_EVENT_TIME.store(now, Ordering::Relaxed);
 
             let trigger_mode = if action == "Press" { TriggerMode::Press } else { TriggerMode::Release };
             let source = InputSource {
@@ -352,9 +376,9 @@ pub fn start_gamepad_recording() {
                             let device_name = if is_ps { "PS5" } else { "Xbox" }.to_string();
                             let name = gamepad_button_name(bit as u16, is_ps);
                             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
-                            let mut last = LAST_EVENT_TIME.lock();
-                            let delay = if *last == 0 { 0 } else { now.saturating_sub(*last) };
-                            *last = now;
+                            let last_val = LAST_EVENT_TIME.load(Ordering::Relaxed);
+                            let delay = if last_val == 0 { 0 } else { now.saturating_sub(last_val) };
+                            LAST_EVENT_TIME.store(now, Ordering::Relaxed);
 
                             // Rule matching for gamepad
                             if pressed {
