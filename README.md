@@ -58,13 +58,17 @@ tauri-dev.bat
 ### 生产构建
 
 ```bash
-# 构建（自动检测 MSVC/SDK，嵌入前端）
-npx tauri build
+# 先构建前端
+npm run build
+
+# 再用 cargo 构建（自动检测 MSVC/SDK，嵌入前端）
+cargo-build.bat
 ```
 
-产物在 `src-tauri/target/release/bundle/` 下：
-- `msi/` — MSI 安装包
-- `exe` — 独立可执行文件
+产物：`src-tauri/target/release/keymapper.exe`（单文件，约 3.5MB，前端已内嵌）
+
+> **注意**：`npx tauri build` 会尝试下载 WiX 打包 MSI，如网络超时可直接用上述方式。
+> `cargo build --release` 需要先 `npm run build` 生成前端资源，否则运行时会报 localhost 拒绝连接。
 
 ## 项目结构
 
